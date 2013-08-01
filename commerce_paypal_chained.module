@@ -9,12 +9,12 @@
 /**
  * Implements hook_commerce_payment_method_info().
  */
-function commerce_paypal_wps_commerce_payment_method_info() {
+function commerce_paypal_chained_commerce_payment_method_info() {
   $payment_methods = array();
 
-  $payment_methods['paypal_wps'] = array(
-    'base' => 'commerce_paypal_wps',
-    'title' => t('PayPal WPS'),
+  $payment_methods['paypal_chained'] = array(
+    'base' => 'commerce_paypal_chained',
+    'title' => t('PayPal Chained'),
     'short_title' => t('PayPal'),
     'description' => t('PayPal Website Payments Standard'),
     'terminal' => FALSE,
@@ -26,14 +26,14 @@ function commerce_paypal_wps_commerce_payment_method_info() {
 }
 
 /**
- * Returns the default settings for the PayPal WPS payment method.
+ * Returns the default settings for the PayPal Chained payment method.
  */
-function commerce_paypal_wps_default_settings() {
+function commerce_paypal_chained_default_settings() {
   $default_currency = commerce_default_currency();
 
   return array(
     'business' => '',
-    'currency_code' => in_array($default_currency, array_keys(commerce_paypal_currencies('paypal_wps'))) ? $default_currency : 'USD',
+    'currency_code' => in_array($default_currency, array_keys(commerce_paypal_currencies('paypal_chained'))) ? $default_currency : 'USD',
     'allow_supported_currencies' => FALSE,
     'language' => 'US',
     'server' => 'sandbox',
@@ -48,11 +48,11 @@ function commerce_paypal_wps_default_settings() {
 /**
  * Payment method callback: settings form.
  */
-function commerce_paypal_wps_settings_form($settings = array()) {
+function commerce_paypal_chained_settings_form($settings = array()) {
   $form = array();
 
   // Merge default settings into the stored settings array.
-  $settings = (array) $settings + commerce_paypal_wps_default_settings();
+  $settings = (array) $settings + commerce_paypal_chained_default_settings();
 
   $form['business'] = array(
     '#type' => 'textfield',
@@ -65,7 +65,7 @@ function commerce_paypal_wps_settings_form($settings = array()) {
     '#type' => 'select',
     '#title' => t('Default currency'),
     '#description' => t('Transactions in other currencies will be converted to this currency, so multi-currency sites must be configured to use appropriate conversion rates.'),
-    '#options' => commerce_paypal_currencies('paypal_wps'),
+    '#options' => commerce_paypal_currencies('paypal_chained'),
     '#default_value' => $settings['currency_code'],
   );
   $form['allow_supported_currencies'] = array(
@@ -77,7 +77,7 @@ function commerce_paypal_wps_settings_form($settings = array()) {
   $form['language'] = array(
     '#type' => 'select',
     '#title' => t('PayPal login page language / locale'),
-    '#options' => commerce_paypal_wps_languages(),
+    '#options' => commerce_paypal_chained_languages(),
     '#default_value' => $settings['language'],
   );
   $form['server'] = array(
@@ -121,7 +121,7 @@ function commerce_paypal_wps_settings_form($settings = array()) {
   );
   $form['show_payment_instructions'] = array(
     '#type' => 'checkbox',
-    '#title' => t('Show a message on the checkout form when PayPal WPS is selected telling the customer to "Continue with checkout to complete payment via PayPal."'),
+    '#title' => t('Show a message on the checkout form when PayPal Chained is selected telling the customer to "Continue with checkout to complete payment via PayPal."'),
     '#default_value' => $settings['show_payment_instructions'],
   );
 
@@ -132,12 +132,12 @@ function commerce_paypal_wps_settings_form($settings = array()) {
  * Payment method callback: adds a message to the submission form if enabled in
  * the payment method settings.
  */
-function commerce_paypal_wps_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
+function commerce_paypal_chained_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
   $form = array();
 
   if (!empty($payment_method['settings']['show_payment_instructions'])) {
-    $form['paypal_wps_information'] = array(
-      '#markup' => '<span class="commerce-paypal-wps-info">' . t('(Continue with checkout to complete payment via PayPal.)') . '</span>',
+    $form['paypal_chained_information'] = array(
+      '#markup' => '<span class="commerce-paypal-chained-info">' . t('(Continue with checkout to complete payment via PayPal.)') . '</span>',
     );
   }
 
@@ -147,22 +147,22 @@ function commerce_paypal_wps_submit_form($payment_method, $pane_values, $checkou
 /**
  * Implements hook_form_FORM_ID_alter().
  */
-function commerce_paypal_wps_form_commerce_checkout_form_alter(&$form, &$form_state) {
+function commerce_paypal_chained_form_commerce_checkout_form_alter(&$form, &$form_state) {
   // If this checkout form contains the payment method radios...
   if (!empty($form['commerce_payment']['payment_method']['#options'])) {
-    // Loop over its options array looking for a PayPal WPS option.
+    // Loop over its options array looking for a PayPal Chained option.
     foreach ($form['commerce_payment']['payment_method']['#options'] as $key => &$value) {
       list($method_id, $rule_name) = explode('|', $key);
 
-      // If we find PayPal WPS...
-      if ($method_id == 'paypal_wps') {
+      // If we find PayPal Chained...
+      if ($method_id == 'paypal_chained') {
         // Prepare the replacement radio button text with icons.
         $icons = commerce_paypal_icons();
         $value = t('!logo PayPal - pay securely without sharing your financial information', array('!logo' => $icons['paypal']));
         $value .= '<div class="commerce-paypal-icons"><span class="label">' . t('Includes:') . '</span>' . implode(' ', $icons) . '</div>';
 
         // Add the CSS.
-        $form['commerce_payment']['payment_method']['#attached']['css'][] = drupal_get_path('module', 'commerce_paypal_wps') . '/theme/commerce_paypal_wps.theme.css';
+        $form['commerce_payment']['payment_method']['#attached']['css'][] = drupal_get_path('module', 'commerce_paypal_chained') . '/theme/commerce_paypal_chained.theme.css';
 
         break;
       }
@@ -172,12 +172,12 @@ function commerce_paypal_wps_form_commerce_checkout_form_alter(&$form, &$form_st
 
 /**
  * Payment method callback: redirect form, a wrapper around the module's general
- *   use function for building a WPS form.
+ *   use function for building a Chained form.
  */
-function commerce_paypal_wps_redirect_form($form, &$form_state, $order, $payment_method) {
+function commerce_paypal_chained_redirect_form($form, &$form_state, $order, $payment_method) {
   // Return an error if the enabling action's settings haven't been configured.
   if (empty($payment_method['settings']['business'])) {
-    drupal_set_message(t('PayPal WPS is not configured for use. No PayPal e-mail address has been specified.'), 'error');
+    drupal_set_message(t('PayPal Chained is not configured for use. No PayPal e-mail address has been specified.'), 'error');
     return array();
   }
 
@@ -192,16 +192,16 @@ function commerce_paypal_wps_redirect_form($form, &$form_state, $order, $payment
     'payment_method' => $payment_method['instance_id'],
   );
 
-  return commerce_paypal_wps_order_form($form, $form_state, $order, $payment_method['settings'] + $settings);
+  return commerce_paypal_chained_order_form($form, $form_state, $order, $payment_method['settings'] + $settings);
 }
 
 /**
  * Payment method callback: redirect form return validation.
  */
-function commerce_paypal_wps_redirect_form_validate($order, $payment_method) {
+function commerce_paypal_chained_redirect_form_validate($order, $payment_method) {
   if (!empty($payment_method['settings']['ipn_logging']) &&
     $payment_method['settings']['ipn_logging'] == 'full_ipn') {
-    watchdog('commerce_paypal_wps', 'Customer returned from PayPal with the following POST data:!ipn_data', array('!ipn_data' => '<pre>' . check_plain(print_r($_POST, TRUE)) . '</pre>'), WATCHDOG_NOTICE);
+    watchdog('commerce_paypal_chained', 'Customer returned from PayPal with the following POST data:!ipn_data', array('!ipn_data' => '<pre>' . check_plain(print_r($_POST, TRUE)) . '</pre>'), WATCHDOG_NOTICE);
   }
 
   // This may be an unnecessary step, but if for some reason the user does end
@@ -215,7 +215,7 @@ function commerce_paypal_wps_redirect_form_validate($order, $payment_method) {
  * Payment method callback: validate an IPN based on receiver e-mail address,
  *   price, and other parameters as possible.
  */
-function commerce_paypal_wps_paypal_ipn_validate($order, $payment_method, $ipn) {
+function commerce_paypal_chained_paypal_ipn_validate($order, $payment_method, $ipn) {
   // Prepare a trimmed list of receiver e-mail addresses.
   if (!empty($payment_method['settings']['receiver_emails'])) {
     $receiver_emails = explode(',', $payment_method['settings']['receiver_emails']);
@@ -235,7 +235,7 @@ function commerce_paypal_wps_paypal_ipn_validate($order, $payment_method, $ipn) 
   // payment method instance.
   if (!in_array(trim(strtolower($ipn['receiver_email'])), $receiver_emails)) {
     commerce_payment_redirect_pane_previous_page($order);
-    watchdog('commerce_paypal_wps', 'IPN rejected: invalid receiver e-mail specified (@receiver_email); must match the primary e-mail address on the PayPal account.', array('@receiver_email' => $ipn['receiver_email']), WATCHDOG_NOTICE);
+    watchdog('commerce_paypal_chained', 'IPN rejected: invalid receiver e-mail specified (@receiver_email); must match the primary e-mail address on the PayPal account.', array('@receiver_email' => $ipn['receiver_email']), WATCHDOG_NOTICE);
     return FALSE;
   }
 
@@ -249,18 +249,18 @@ function commerce_paypal_wps_paypal_ipn_validate($order, $payment_method, $ipn) 
 
   // Log a message including the PayPal transaction ID if available.
   if (!empty($ipn['txn_id'])) {
-    watchdog('commerce_paypal_wps', 'IPN validated for Order @order_number with ID @txn_id.!ipn_data', array('@order_number' => $order->order_number, '@txn_id' => $ipn['txn_id'], '!ipn_data' => $ipn_data), WATCHDOG_NOTICE);
+    watchdog('commerce_paypal_chained', 'IPN validated for Order @order_number with ID @txn_id.!ipn_data', array('@order_number' => $order->order_number, '@txn_id' => $ipn['txn_id'], '!ipn_data' => $ipn_data), WATCHDOG_NOTICE);
   }
   else {
-    watchdog('commerce_paypal_wps', 'IPN validated for Order @order_number.!ipn_data', array('@order_number' => $order->order_number, '!ipn_data' => $ipn_data), WATCHDOG_NOTICE);
+    watchdog('commerce_paypal_chained', 'IPN validated for Order @order_number.!ipn_data', array('@order_number' => $order->order_number, '!ipn_data' => $ipn_data), WATCHDOG_NOTICE);
   }
 }
 
 /**
  * Payment method callback: process an IPN once it's been validated.
  */
-function commerce_paypal_wps_paypal_ipn_process($order, $payment_method, &$ipn) {
-  // Do not perform any processing on WPS transactions here that do not have
+function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$ipn) {
+  // Do not perform any processing on Chained transactions here that do not have
   // transaction IDs, indicating they are non-payment IPNs such as those used
   // for subscription signup requests.
   if (empty($ipn['txn_id'])) {
@@ -282,7 +282,7 @@ function commerce_paypal_wps_paypal_ipn_process($order, $payment_method, &$ipn) 
   }
   else {
     // Create a new payment transaction for the order.
-    $transaction = commerce_payment_transaction_new('paypal_wps', $order->order_id);
+    $transaction = commerce_payment_transaction_new('paypal_chained', $order->order_id);
     $transaction->instance_id = $payment_method['instance_id'];
   }
 
@@ -335,7 +335,7 @@ function commerce_paypal_wps_paypal_ipn_process($order, $payment_method, &$ipn) 
       // Ensure we have the required data in the IPN.
       if (empty($ipn['residence_country']) || empty($ipn['first_name']) || empty($ipn['last_name'])) {
         $data = array_intersect_key($ipn, drupal_map_assoc(array('residence_country', 'first_name', 'last_name')));
-        watchdog('commerce_paypal_wps', 'A billing profile for Order @order_number could not be created due to insufficient data in the IPN:!data', array('@order_number' => $order->order_number, '!data' => '<pre>'. check_plain(print_r($data, TRUE)) .'</pre>'), WATCHDOG_WARNING);
+        watchdog('commerce_paypal_chained', 'A billing profile for Order @order_number could not be created due to insufficient data in the IPN:!data', array('@order_number' => $order->order_number, '!data' => '<pre>'. check_plain(print_r($data, TRUE)) .'</pre>'), WATCHDOG_WARNING);
       }
       else {
         // Create the new profile now.
@@ -356,13 +356,13 @@ function commerce_paypal_wps_paypal_ipn_process($order, $payment_method, &$ipn) 
         $order_wrapper->commerce_customer_billing = $profile_wrapper;
         $order_wrapper->save();
 
-        watchdog('commerce_paypal_wps', 'Billing profile created for Order @order_number containing the first and last names and residence country of the customer based on IPN data.', array('@order_number' => $order->order_number));
+        watchdog('commerce_paypal_chained', 'Billing profile created for Order @order_number containing the first and last names and residence country of the customer based on IPN data.', array('@order_number' => $order->order_number));
       }
     }
   }
 
   commerce_payment_redirect_pane_next_page($order);
-  watchdog('commerce_paypal_wps', 'IPN processed for Order @order_number with ID @txn_id.', array('@txn_id' => $ipn['txn_id'], '@order_number' => $order->order_number), WATCHDOG_INFO);
+  watchdog('commerce_paypal_chained', 'IPN processed for Order @order_number with ID @txn_id.', array('@txn_id' => $ipn['txn_id'], '@order_number' => $order->order_number), WATCHDOG_INFO);
 }
 
 /**
@@ -387,7 +387,7 @@ function commerce_paypal_wps_paypal_ipn_process($order, $payment_method, &$ipn) 
  * @return
  *   A renderable form array.
  */
-function commerce_paypal_wps_order_form($form, &$form_state, $order, $settings) {
+function commerce_paypal_chained_order_form($form, &$form_state, $order, $settings) {
   $wrapper = entity_metadata_wrapper('commerce_order', $order);
 
   // Determine the currency code to use to actually process the transaction,
@@ -396,7 +396,7 @@ function commerce_paypal_wps_order_form($form, &$form_state, $order, $settings) 
   $currency_code = $settings['currency_code'];
   $order_currency_code = $wrapper->commerce_order_total->currency_code->value();
 
-  if (!empty($settings['allow_supported_currencies']) && in_array($order_currency_code, array_keys(commerce_paypal_currencies('paypal_wps')))) {
+  if (!empty($settings['allow_supported_currencies']) && in_array($order_currency_code, array_keys(commerce_paypal_currencies('paypal_chained')))) {
     $currency_code = $order_currency_code;
   }
 
@@ -455,9 +455,9 @@ function commerce_paypal_wps_order_form($form, &$form_state, $order, $settings) 
   );
 
   // Allow modules to alter parameters of the API request.
-  drupal_alter('commerce_paypal_wps_order_form_data', $data, $order);
+  drupal_alter('commerce_paypal_chained_order_form_data', $data, $order);
 
-  $form['#action'] = commerce_paypal_wps_server_url($settings['server']);
+  $form['#action'] = commerce_paypal_chained_server_url($settings['server']);
 
   foreach ($data as $name => $value) {
     if (!empty($value)) {
@@ -474,15 +474,15 @@ function commerce_paypal_wps_order_form($form, &$form_state, $order, $settings) 
 }
 
 /**
- * Returns the URL to the specified PayPal WPS server.
+ * Returns the URL to the specified PayPal Chained server.
  *
  * @param $server
  *   Either sandbox or live indicating which server to get the URL for.
  *
  * @return
- *   The URL to use to submit requests to the PayPal WPS server.
+ *   The URL to use to submit requests to the PayPal Chained server.
  */
-function commerce_paypal_wps_server_url($server) {
+function commerce_paypal_chained_server_url($server) {
   switch ($server) {
     case 'sandbox':
       return 'https://www.sandbox.paypal.com/cgi-bin/webscr';
@@ -494,7 +494,7 @@ function commerce_paypal_wps_server_url($server) {
 /**
  * Returns an array of all possible language codes.
  */
-function commerce_paypal_wps_languages() {
+function commerce_paypal_chained_languages() {
   return array(
     t('By country') => array(
       'AU' => t('Australia'),
