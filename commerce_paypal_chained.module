@@ -2,7 +2,7 @@
 
 /**
  * @file
- * Implements PayPal Website Payments Standard in Drupal Commerce checkout.
+ * Implements PayPal Chained Payments in Drupal Commerce checkout.
  */
 
 
@@ -23,6 +23,24 @@ function commerce_paypal_chained_commerce_payment_method_info() {
   );
 
   return $payment_methods;
+}
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_paypal_chained_menu() {
+  $items = array();
+
+  // Define an additional IPN path that is specific to our payment method /
+  // instance.
+  $items['commerce_paypal/paypal-chained/ipn'] = array(
+    'page callback' => 'commerce_paypal_chained_process_ipn',
+    'page arguments' => array(),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
 }
 
 /**
@@ -212,6 +230,178 @@ function commerce_paypal_chained_redirect_form_validate($order, $payment_method)
 }
 
 /**
+ * Processes an incoming chained payment IPN.
+ *
+ * @param $debug_ipn
+ *   Optionally specify an IPN array for debug purposes; if left empty, the IPN
+ *     be pulled from php://input. If an IPN is passed in, validation of the IPN
+ *     at PayPal will be bypassed.
+ *
+ * @return
+ *   TRUE or FALSE indicating whether the IPN was successfully processed or not.
+ */
+function commerce_paypal_chained_process_ipn($debug_ipn = array()) {
+  // Load up our payment method instance array
+  $payment_method = commerce_payment_method_instance_load('paypal_chained|commerce_payment_paypal_chained');
+  // Retrieve the IPN from $_POST if the caller did not supply an IPN array.
+  // Note that Drupal has already run stripslashes() on the contents of the
+  // $_POST array at this point, so we don't need to worry about them.
+  if (empty($debug_ipn)) {
+    // We can't rely on $_POST for our IPN vars because PayPal sends them back
+    // nested in such a way that PHP can't interpret the nested transactions
+    // array
+    // So in this case we have nested POST data we have to parse into an array
+    // by hand
+    $raw_ipn = file_get_contents("php://input");
+    // Exit now if we have no ipn data.
+    if (empty($raw_ipn)) {
+      watchdog('commerce_paypal_chained', 'IPN URL accessed with no POST data submitted.', array(), WATCHDOG_WARNING);
+      return FALSE;
+    }
+    // Decode the URL-encoded bits
+    $decoded_ipn = urldecode($raw_ipn);
+    // Break apart our variables
+    $vars = explode('&', $decoded_ipn);
+    // Initialize the array we'll be filling
+    $ipn = array();
+    foreach ($vars as $var) {
+      // First, split our data pairs up on the first '='
+      list($key, $value) = explode('=', $var, 2);
+      // So, if $key contains '[x]' then we're looking at data that's part of an
+      // array
+      // PayPal's format is basically "variable-name[iteration].property-name = value"
+      // We'll turn this into $ipn['variable-name'][iteration]['property-name'] = value so we
+      // can work with this data in PHP
+      if (preg_match("/.*?(\\d+)/is", $key, $matches)) {
+        // We are looking at an array
+        // Grab the variable name
+        $variable_name = substr($key, 0, strpos($key, '['));
+        // Our iteration is the integer x in "[x]", which is stored in $matches[1]
+        $iteration = $matches[1];
+        // Grab the property name
+        $property_name = substr($key, strpos($key, '.') + 1);
+        // Ok - we have what we need to store this
+        $ipn[$variable_name][$iteration][$property_name] = $value;
+      }
+      else {
+        // This is just a regular key-value pair so store as such
+        $ipn[$key] = $value;
+      }
+    }
+    // Exit now if we have no pay key
+    if (empty($ipn['pay_key'])) {
+      watchdog('commerce_paypal_chained', 'IPN URL accessed with no pay_key in POST data submitted.', array(), WATCHDOG_WARNING);
+      return FALSE;
+    }
+
+    // IPN validation time...
+    // Basically, verify with PayPal that it just sent us this message
+
+    // Determine the proper PayPal server to POST to.
+    if (!empty($ipn['test_ipn']) && $ipn['test_ipn'] == 1) {
+      $host = 'https://www.sandbox.paypal.com/cgi-bin/webscr';
+    }
+    else {
+      $host = 'https://www.paypal.com/cgi-bin/webscr';
+    }
+
+    // Process the HTTP request to validate the IPN.
+    $response = drupal_http_request($host, array('method' => 'POST', 'data' => 'cmd=_notify-validate&' . $raw_ipn));
+
+    // If an error occurred during processing, log the message and exit.
+    if (property_exists($response, 'error')) {
+      watchdog('commerce_paypal_chained', 'Attempt to validate IPN failed with error @code: @error', array('@code' => $response->code, '@error' => $response->error), WATCHDOG_ERROR);
+      return FALSE;
+    }
+
+    // If the IPN was invalid, log a message and exit.
+    if ($response->data == 'INVALID') {
+      watchdog('commerce_paypal_chained', 'Invalid IPN received and ignored.', array(), WATCHDOG_ALERT);
+      return FALSE;
+    }
+  }
+  else {
+    $ipn = $debug_ipn;
+  }
+
+  // If the payment method specifies full IPN logging, do it now.
+  if (!empty($payment_method['settings']['ipn_logging']) &&
+    $payment_method['settings']['ipn_logging'] == 'full_ipn') {
+    if (!empty($ipn['pay_key'])) {
+      watchdog('commerce_paypal', 'Attempting to process IPN @pay_key. !ipn_log', array('@pay_key' => $ipn['pay_key'], '!ipn_log' => '<pre>' . check_plain(print_r($ipn, TRUE)) . '</pre>'), WATCHDOG_NOTICE);
+    }
+    else {
+      watchdog('commerce_paypal', 'Attempting to process an IPN. !ipn_log', array('!ipn_log' => '<pre>' . check_plain(print_r($ipn, TRUE)) . '</pre>'), WATCHDOG_NOTICE);
+    }
+  }
+
+  // Exit if the IPN has already been processed.
+  if (!empty($ipn['pay_key']) && $prior_ipn = commerce_paypal_ipn_load($ipn['pay_key'])) {
+    if ($prior_ipn['payment_status'] == $ipn['payment_status']) {
+      watchdog('commerce_paypal', 'Attempted to process an IPN that has already been processed with transaction ID @pay_key.', array('@pay_key' => $ipn['pay_key']), WATCHDOG_NOTICE);
+      return FALSE;
+    }
+  }
+
+  // Load the order based on the IPN's invoice number, which we've stored in
+  // tracking_id.
+  if (!empty($ipn['tracking_id']) && strpos($ipn['tracking_id'], '-') !== FALSE) {
+    list($ipn['order_id'], $timestamp) = explode('-', $ipn['tracking_id']);
+  }
+  elseif (!empty($ipn['tracking_id'])) {
+    $ipn['order_id'] = $ipn['tracking_id'];
+  }
+  else {
+    $ipn['order_id'] = 0;
+    $timestamp = 0;
+  }
+
+  if (!empty($ipn['order_id'])) {
+    $order = commerce_order_load($ipn['order_id']);
+  }
+  else {
+    $order = FALSE;
+  }
+  // Give the payment method module an opportunity to validate the receiver
+  // e-mail address and amount of the payment if possible. If a validate
+  // function exists, it is responsible for setting its own watchdog message.
+  if (!empty($payment_method)) {
+    $callback = $payment_method['base'] . '_paypal_ipn_validate';
+
+    // If a validator function existed...
+    if (function_exists($callback)) {
+      // Only exit if the function explicitly returns FALSE.
+      if ($callback($order, $payment_method, $ipn) === FALSE) {
+        return FALSE;
+      }
+    }
+  }
+
+  // Give the payment method module an opportunity to process the IPN.
+  if (!empty($payment_method)) {
+    $callback = $payment_method['base'] . '_paypal_ipn_process';
+
+    // If a processing function existed...
+    if (function_exists($callback)) {
+      // Skip saving if the function explicitly returns FALSE, meaning the IPN
+      // wasn't actually processed.
+      if ($callback($order, $payment_method, $ipn) !== FALSE) {
+        // Save the processed IPN details.
+        // This function makes use of $ipn['txn_id'], which we don't have.
+        // What we do have is a pay_key, so we'll use our pay_key as the txn_id
+        $ipn['txn_id'] = $ipn['pay_key'];
+        commerce_paypal_ipn_save($ipn);
+      }
+    }
+  }
+
+  // Invoke the hook here so implementations have access to the order and
+  // payment method if available and a saved IPN array that includes the payment
+  // transaction ID if created in the payment method's default process callback.
+  module_invoke_all('commerce_paypal_ipn_process', $order, $payment_method, $ipn);
+}
+
+/**
  * Payment method callback: validate an IPN based on receiver e-mail address,
  *   price, and other parameters as possible.
  */
@@ -248,8 +438,8 @@ function commerce_paypal_chained_paypal_ipn_validate($order, $payment_method, $i
   }
 
   // Log a message including the PayPal transaction ID if available.
-  if (!empty($ipn['txn_id'])) {
-    watchdog('commerce_paypal_chained', 'IPN validated for Order @order_number with ID @txn_id.!ipn_data', array('@order_number' => $order->order_number, '@txn_id' => $ipn['txn_id'], '!ipn_data' => $ipn_data), WATCHDOG_NOTICE);
+  if (!empty($ipn['pay_key'])) {
+    watchdog('commerce_paypal_chained', 'IPN validated for Order @order_number with ID @pay_key.!ipn_data', array('@order_number' => $order->order_number, '@pay_key' => $ipn['pay_key'], '!ipn_data' => $ipn_data), WATCHDOG_NOTICE);
   }
   else {
     watchdog('commerce_paypal_chained', 'IPN validated for Order @order_number.!ipn_data', array('@order_number' => $order->order_number, '!ipn_data' => $ipn_data), WATCHDOG_NOTICE);
@@ -263,7 +453,7 @@ function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$i
   // Do not perform any processing on Chained transactions here that do not have
   // transaction IDs, indicating they are non-payment IPNs such as those used
   // for subscription signup requests.
-  if (empty($ipn['txn_id'])) {
+  if (empty($ipn['pay_key'])) {
     return FALSE;
   }
 
@@ -286,7 +476,7 @@ function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$i
     $transaction->instance_id = $payment_method['instance_id'];
   }
 
-  $transaction->remote_id = $ipn['txn_id'];
+  $transaction->remote_id = $ipn['pay_key'];
   $transaction->amount = commerce_currency_decimal_to_amount($ipn['mc_gross'], $ipn['mc_currency']);
   $transaction->currency_code = $ipn['mc_currency'];
   $transaction->payload[REQUEST_TIME . '-ipn'] = $ipn;
@@ -318,7 +508,7 @@ function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$i
 
     case 'Refunded':
       $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
-      $transaction->message = t('Refund for transaction @txn_id', array('@txn_id' => $ipn['parent_txn_id']));
+      $transaction->message = t('Refund for transaction @pay_key', array('@pay_key' => $ipn['parent_txn_id']));
       break;
   }
 
@@ -362,7 +552,7 @@ function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$i
   }
 
   commerce_payment_redirect_pane_next_page($order);
-  watchdog('commerce_paypal_chained', 'IPN processed for Order @order_number with ID @txn_id.', array('@txn_id' => $ipn['txn_id'], '@order_number' => $order->order_number), WATCHDOG_INFO);
+  watchdog('commerce_paypal_chained', 'IPN processed for Order @order_number with ID @pay_key.', array('@pay_key' => $ipn['pay_key'], '@order_number' => $order->order_number), WATCHDOG_INFO);
 }
 
 /**
