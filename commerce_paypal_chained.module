@@ -230,6 +230,137 @@ function commerce_paypal_chained_redirect_form_validate($order, $payment_method)
 }
 
 /**
+ * Loads a stored chained payment IPN by ID.
+ *
+ * @param $id
+ *   The ID of the IPN to load.
+ * @param $type
+ *   The type of ID you've specified, either the serial numeric ipn_id or the
+ *     actual PayPal pay_key. Defaults to pay_key.
+ *
+ * @return
+ *   The original IPN with some meta data related to local processing.
+ */
+function commerce_paypal_chained_ipn_load($id, $type = 'pay_key') {
+  // Grab the base IPN array
+  $ipn = db_select('commerce_paypal_chained_ipn', 'cpci')
+    ->fields('cpci')
+    ->condition('cpci.' . $type, $id)
+    ->execute()
+    ->fetchAssoc();
+  // Grab this IPN's transactions (chained payments)
+  $result = db_select('commerce_paypal_chained_ipn_transaction', 'cpcit')
+    ->fields('cpcit')
+    ->condition('cpcit.ipn_transaction_id', $ipn['ipn_id'])
+    ->execute()
+    ->fetchAssoc();
+  // Add these chained transactions into the IPN
+  while ($record = $result->fetchAssoc()) {
+    $ipn['transaction'][] = $record;
+  }
+  return $ipn;
+}
+
+/**
+ * Saves an IPN with some meta data related to local processing.
+ *
+ * @param $ipn
+ *   An IPN array with additional parameters associated with the IPN.
+ *
+ * @return
+ *   TRUE on success, FALSE on failure; since the IPN is received by reference,
+ *     it will also contain the serial numeric ipn_id used locally.
+ */
+function commerce_paypal_chained_ipn_save(&$ipn) {
+  // Split our transactions off of our IPN since they get stored in different
+  // tables
+  $ipn_transactions = $ipn['transaction'];
+  unset($ipn['transaction']);
+  if (!empty($ipn['ipn_id']) && commerce_paypal_chained_ipn_load($ipn['pay_key'])) {
+    // Pre-existing IPN
+    // Update the changed timestamp in this IPN
+    $ipn['changed'] = REQUEST_TIME;
+    // Attempt to save the IPN
+    if (drupal_write_record('commerce_paypal_ipn', $ipn, 'ipn_id')) {
+      // Success - store the ipn transactions
+      if (commerce_paypal_chained_ipn_transactions_save($ipn_transactions, $ipn['ipn_id'])) {
+        $ipn['transaction'] = $ipn_transactions;
+        return TRUE;
+      }
+      else {
+        return FALSE;
+      }
+    }
+    else {
+      return FALSE;
+    }
+  }
+  else {
+    // New IPN
+    $ipn['created'] = REQUEST_TIME;
+    $ipn['changed'] = REQUEST_TIME;
+    // Attempt to save the IPN
+    if (drupal_write_record('commerce_paypal_ipn', $ipn)) {
+      // Success - store the ipn transactions
+      if (commerce_paypal_chained_ipn_transactions_save($ipn_transactions, $ipn['ipn_id'])) {
+        $ipn['transaction'] = $ipn_transactions;
+        return TRUE;
+      }
+      else {
+        return FALSE;
+      }
+    }
+    else {
+      return FALSE;
+    }
+  }
+}
+
+// TODO comment this
+function commerce_paypal_chained_ipn_transactions_save(&$ipn_transactions, $ipn_id) {
+  foreach ($ipn_transactions as $key => $ipn_transaction) {
+    $ipn_transaction['ipn_id'] = $ipn_id;
+    if (!empty($ipn_transaction['ipn_transaction_id'])) {
+      // Pre-existing ipn transaction
+      if (drupal_write_record('commerce_paypal_chained_ipn_transaction', $ipn_transaction, 'ipn_transaction_id')) {
+        // drupal_write_record() may have updated our transaction - so store it
+        $ipn_transactions[$key] = $ipn_transaction;
+      }
+      else {
+        // Return false on failure to write this record
+        return FALSE;
+      }
+    }
+    else {
+      if (drupal_write_record('commerce_paypal_chained_ipn_transaction', $ipn_transaction)) {
+        // drupal_write_record() updated our transaction - so store it
+        $ipn_transactions[$key] = $ipn_transaction;
+      }
+      else {
+        // Return false on failure to write this record
+        return FALSE;
+      }
+    }
+  }
+  return TRUE;
+}
+
+/**
+ * Deletes a stored IPN by ID.
+ *
+ * @param $id
+ *   The ID of the IPN to delete.
+ * @param $type
+ *   The type of ID you've specified, either the serial numeric ipn_id or the
+ *     actual PayPal txn_id. Defaults to txn_id.
+ */
+function commerce_paypal_chained_ipn_delete($id, $type = 'txn_id') {
+  db_delete('commerce_paypal_ipn')
+    ->condition($type, $id)
+    ->execute();
+}
+
+/**
  * Processes an incoming chained payment IPN.
  *
  * @param $debug_ipn
@@ -336,11 +467,17 @@ function commerce_paypal_chained_process_ipn($debug_ipn = array()) {
   }
 
   // Exit if the IPN has already been processed.
-  if (!empty($ipn['pay_key']) && $prior_ipn = commerce_paypal_ipn_load($ipn['pay_key'])) {
-    if ($prior_ipn['payment_status'] == $ipn['payment_status']) {
-      watchdog('commerce_paypal', 'Attempted to process an IPN that has already been processed with transaction ID @pay_key.', array('@pay_key' => $ipn['pay_key']), WATCHDOG_NOTICE);
-      return FALSE;
-    }
+  if (!empty($ipn['pay_key']) && $prior_ipn = commerce_paypal_chained_ipn_load($ipn['pay_key'])) {
+    // TODO
+    // Dive down into each item in the pay chain checking status - if all
+    // statuses match what they were the last time around, we've already seen
+    // this.  Otherwise - if a status is different then we need to adjust the
+    // transaction associated with that chained payment in
+    // commerce_paypal_chained_paypal_ipn_process().
+    // TODO - verify IPNs are sent out when any piece of the chain changes
+    // For now - we only accept one IPN with this paykey
+    watchdog('commerce_paypal', 'Attempted to process an IPN that has already been processed with transaction ID @pay_key.', array('@pay_key' => $ipn['pay_key']), WATCHDOG_NOTICE);
+    return FALSE;
   }
 
   // Load the order based on the IPN's invoice number, which we've stored in
@@ -387,10 +524,7 @@ function commerce_paypal_chained_process_ipn($debug_ipn = array()) {
       // wasn't actually processed.
       if ($callback($order, $payment_method, $ipn) !== FALSE) {
         // Save the processed IPN details.
-        // This function makes use of $ipn['txn_id'], which we don't have.
-        // What we do have is a pay_key, so we'll use our pay_key as the txn_id
-        $ipn['txn_id'] = $ipn['pay_key'];
-        commerce_paypal_ipn_save($ipn);
+        commerce_paypal_chained_ipn_save($ipn);
       }
     }
   }
@@ -406,28 +540,8 @@ function commerce_paypal_chained_process_ipn($debug_ipn = array()) {
  *   price, and other parameters as possible.
  */
 function commerce_paypal_chained_paypal_ipn_validate($order, $payment_method, $ipn) {
-  // Prepare a trimmed list of receiver e-mail addresses.
-  if (!empty($payment_method['settings']['receiver_emails'])) {
-    $receiver_emails = explode(',', $payment_method['settings']['receiver_emails']);
-  }
-  else {
-    $receiver_emails = array();
-  }
-
-  // Add the business e-mail address to the list of addresses.
-  $receiver_emails[] = $payment_method['settings']['business'];
-
-  foreach ($receiver_emails as $key => &$email) {
-    $email = trim(strtolower($email));
-  }
-
-  // Return FALSE if the receiver e-mail does not match one specified by the
-  // payment method instance.
-  if (!in_array(trim(strtolower($ipn['receiver_email'])), $receiver_emails)) {
-    commerce_payment_redirect_pane_previous_page($order);
-    watchdog('commerce_paypal_chained', 'IPN rejected: invalid receiver e-mail specified (@receiver_email); must match the primary e-mail address on the PayPal account.', array('@receiver_email' => $ipn['receiver_email']), WATCHDOG_NOTICE);
-    return FALSE;
-  }
+  // TODO - return FALSE if chain described in this IPN doesn't match this
+  // order's chain
 
   // Prepare the IPN data for inclusion in the watchdog message if enabled.
   $ipn_data = '';
@@ -450,23 +564,56 @@ function commerce_paypal_chained_paypal_ipn_validate($order, $payment_method, $i
  * Payment method callback: process an IPN once it's been validated.
  */
 function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$ipn) {
-  // Do not perform any processing on Chained transactions here that do not have
-  // transaction IDs, indicating they are non-payment IPNs such as those used
-  // for subscription signup requests.
-  if (empty($ipn['pay_key'])) {
-    return FALSE;
-  }
-
-  // Exit when we don't get a payment status we recognize.
-  if (!in_array($ipn['payment_status'], array('Failed', 'Voided', 'Pending', 'Completed', 'Refunded'))) {
+  // For now, we only recognize COMPLETED paychains
+  // Exit when we don't get a payment status of COMPLETED.
+  if ($ipn['status'] != 'COMPLETED') {
     commerce_payment_redirect_pane_previous_page($order);
     return FALSE;
   }
+  // Great - we're looking at a completed chained payment
+  // Store each of the effective payments as commerce transactions
+  foreach ($ipn['transaction'] as $transaction) {
+    
+  }
+  $transaction = commerce_payment_transaction_new('paypal_chained', $order->order_id);
+  $transaction->instance_id = $payment_method['instance_id'];
+  
+  $transaction->remote_id = $ipn['pay_key'];
+  $transaction->amount = $amount;
+  $transaction->currency_code = $order_currency_code;
+  $transaction->payload[REQUEST_TIME . '-ipn'] = $ipn;
+
+  // Set the transaction's statuses based on the IPN's payment_status.
+  $transaction->remote_status = $ipn['status'];
+
+  // If we didn't get an approval response code...
+  switch ($ipn['status']) {
+    case 'COMPLETED':
+      $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+      $transaction->message = t('The payment has completed.');
+      break;
+  }
+  
+  // Save the transaction information.
+  commerce_payment_transaction_save($transaction);
+  $ipn['transaction_id'] = $transaction->transaction_id;
+  
+  commerce_payment_redirect_pane_next_page($order);
+  watchdog('commerce_paypal_wps', 'IPN processed for Order @order_number with ID @txn_id.', array('@txn_id' => $ipn['txn_id'], '@order_number' => $order->order_number), WATCHDOG_INFO);
+  
+  
+  
+  
+  
+  
+  
+  
+  
 
   // If this is a prior authorization capture IPN for which we've already
   // created a transaction...
   if (in_array($ipn['payment_status'], array('Voided', 'Completed')) &&
-    !empty($ipn['auth_id']) && $auth_ipn = commerce_paypal_ipn_load($ipn['auth_id'])) {
+    !empty($ipn['auth_id']) && $auth_ipn = commerce_paypal_chained_ipn_load($ipn['auth_id'])) {
     // Load the prior IPN's transaction and update that with the capture values.
     $transaction = commerce_payment_transaction_load($auth_ipn['transaction_id']);
   }
