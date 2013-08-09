@@ -49,17 +49,29 @@ function commerce_paypal_chained_menu() {
 function commerce_paypal_chained_default_settings() {
   $default_currency = commerce_default_currency();
 
+  // TODO update this for new settings form
   return array(
-    'business' => '',
+    'application_id' => '',
+    'api_username' => '',
+    'api_password' => '',
+    'api_signature' => '',
     'currency_code' => in_array($default_currency, array_keys(commerce_paypal_currencies('paypal_chained'))) ? $default_currency : 'USD',
     'allow_supported_currencies' => FALSE,
     'language' => 'US',
     'server' => 'sandbox',
-    'payment_action' => 'sale',
     'ipn_logging' => 'notification',
-    'receiver_emails' => '',
     'ipn_create_billing_profile' => FALSE,
     'show_payment_instructions' => FALSE,
+    'primary_receiver_percentage' => '100.00',
+    'primary_receiver_email' => '',
+    'secondary_receiver_0_percentage' => '',
+    'secondary_receiver_0_email' => '',
+    'secondary_receiver_0_percentage' => '',
+    'secondary_receiver_0_email' => '',
+    'secondary_receiver_0_percentage' => '',
+    'secondary_receiver_0_email' => '',
+    'secondary_receiver_0_percentage' => '',
+    'secondary_receiver_0_email' => '',
   );
 }
 
@@ -72,11 +84,32 @@ function commerce_paypal_chained_settings_form($settings = array()) {
   // Merge default settings into the stored settings array.
   $settings = (array) $settings + commerce_paypal_chained_default_settings();
 
-  $form['business'] = array(
+  $form['application_id'] = array(
     '#type' => 'textfield',
-    '#title' => t('PayPal e-mail address'),
-    '#description' => t('The primary e-mail address of the PayPal account you want to use to receive payments.'),
-    '#default_value' => $settings['business'],
+    '#title' => t('PayPal application id'),
+    '#description' => t('Your PayPal application\'s identification, issued by PayPal.'),
+    '#default_value' => $settings['application_id'],
+    '#required' => TRUE,
+  );
+  $form['api_username'] = array(
+    '#type' => 'textfield',
+    '#title' => t('PayPal API username'),
+    '#description' => t('Your PayPal API username.'),
+    '#default_value' => $settings['api_username'],
+    '#required' => TRUE,
+  );
+  $form['api_password'] = array(
+    '#type' => 'textfield',
+    '#title' => t('PayPal API password'),
+    '#description' => t('Your PayPal API password.'),
+    '#default_value' => $settings['api_password'],
+    '#required' => TRUE,
+  );
+  $form['api_signature'] = array(
+    '#type' => 'textfield',
+    '#title' => t('PayPal API signature'),
+    '#description' => t('Your PayPal API signature.'),
+    '#default_value' => $settings['api_signature'],
     '#required' => TRUE,
   );
   $form['currency_code'] = array(
@@ -107,15 +140,6 @@ function commerce_paypal_chained_settings_form($settings = array()) {
     ),
     '#default_value' => $settings['server'],
   );
-  $form['payment_action'] = array(
-    '#type' => 'radios',
-    '#title' => t('Payment action'),
-    '#options' => array(
-      'sale' => t('Sale - authorize and capture the funds at the time the payment is processed'),
-      'authorization' => t('Authorization - reserve funds on the card to be captured later through your PayPal account'),
-    ),
-    '#default_value' => $settings['payment_action'],
-  );
   $form['ipn_logging'] = array(
     '#type' => 'radios',
     '#title' => t('IPN logging'),
@@ -125,24 +149,80 @@ function commerce_paypal_chained_settings_form($settings = array()) {
     ),
     '#default_value' => $settings['ipn_logging'],
   );
-  $form['receiver_emails'] = array(
-    '#type' => 'textfield',
-    '#title' => t('PayPal receiver e-mail addresses'),
-    '#description' => t('Enter the primary e-mail address for your PayPal account if different from the one entered above or a comma separated list of all valid e-mail addresses on the account.') . '<br />' . t('IPNs that originate from payments made to a PayPal account whose e-mail address is not in this list will not be processed.'),
-    '#default_value' => $settings['receiver_emails'],
-  );
-  $form['ipn_create_billing_profile'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Create a billing profile based on name and country data in the IPN for any order that does not have one yet.'),
-    '#description' => t('This is most useful for sites that do not collect billing information locally but still want to have customer names on orders.'),
-    '#default_value' => $settings['ipn_create_billing_profile'],
-  );
   $form['show_payment_instructions'] = array(
     '#type' => 'checkbox',
     '#title' => t('Show a message on the checkout form when PayPal Chained is selected telling the customer to "Continue with checkout to complete payment via PayPal."'),
     '#default_value' => $settings['show_payment_instructions'],
   );
-
+  // Paychain definition
+  $form['pay_chain'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Payment Chain'),
+    '#collapsible' => FALSE,
+    '#collapsed' => FALSE,
+  );
+  $form['pay_chain']['primary_receiver'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Primary receiver'),
+    '#collapsible' => FALSE,
+    '#collapsed' => FALSE,
+    '#description' => t('The primary receiver is the primary party to receive payment and initially receives 100% of the payment.  The secondary receivers are then paid their percentages of the transaction directly from the primary receiver.'),
+  );
+  $form['pay_chain']['primary_receiver']['primary_receiver_percentage'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Percentage'),
+    '#description' => t('The percentage of the commerce order total to send to this receiver.'),
+    '#default_value' => $settings['primary_receiver_percentage'],
+    '#field_suffix' => '%',
+    '#required' => TRUE,
+    '#disabled' => TRUE,
+  );
+  $form['pay_chain']['primary_receiver']['primary_receiver_email'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Receiver\'s PayPal e-mail address'),
+    '#description' => t('The e-mail address of the receiver\'s PayPal account.'),
+    '#default_value' => $settings['primary_receiver_email'],
+  );
+  $form['pay_chain']['secondary_receivers'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Secondary receivers'),
+    '#collapsible' => FALSE,
+    '#collapsed' => FALSE,
+    '#description' => t('The secondary receivers get paid their percentages, in parallel, from the primary receiver.  Because secondary receivers are paid in parallel, the order does not matter.'),
+  );
+  for ($i = 0; $i < 4; $i++) {
+    $form['pay_chain']['secondary_receivers']['secondary_receiver_' . $i] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Secondary receiver'),
+      '#collapsible' => FALSE,
+      '#collapsed' => FALSE,
+    );
+    $form['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_percentage'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Percentage'),
+      '#description' => t('The percentage of the commerce order total to send to this receiver.'),
+      '#default_value' => $settings['secondary_receiver_' . $i . '_percentage'],
+      '#field_suffix' => '%',
+    );
+    $form['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Receiver\'s PayPal e-mail address'),
+      '#description' => t('The e-mail address of the receiver\'s PayPal account.'),
+      '#default_value' => $settings['secondary_receiver_' . $i . '_email'],
+    );
+  }
+  // If token is installed, this paychain is token-enabled
+  if (module_exists('token')) {
+    $form['pay_chain']['token_help'] = array(
+      '#title' => t('Replacement patterns'),
+      '#type' => 'fieldset',
+      '#collapsible' => TRUE,
+      '#collapsed' => TRUE,
+    );
+    $form['pay_chain']['token_help']['help'] = array(
+      '#value' => theme('token_help', 'commerce_order'),
+    );
+  }
   return $form;
 }
 

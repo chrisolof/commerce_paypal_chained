@@ -188,3 +188,10 @@ function commerce_paypal_chained_schema() {
 
   return $schema;
 }
+
+function commerce_paypal_chained_install() {
+  // TODO
+  // Define the payment receiver field and stick an instance of it on the order
+  // transaction entity
+  
+}
