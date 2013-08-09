@@ -281,7 +281,7 @@ function commerce_paypal_chained_ipn_save(&$ipn) {
     // Update the changed timestamp in this IPN
     $ipn['changed'] = REQUEST_TIME;
     // Attempt to save the IPN
-    if (drupal_write_record('commerce_paypal_ipn', $ipn, 'ipn_id')) {
+    if (drupal_write_record('commerce_paypal_chained_ipn', $ipn, 'ipn_id')) {
       // Success - store the ipn transactions
       if (commerce_paypal_chained_ipn_transactions_save($ipn_transactions, $ipn['ipn_id'])) {
         $ipn['transaction'] = $ipn_transactions;
@@ -300,7 +300,7 @@ function commerce_paypal_chained_ipn_save(&$ipn) {
     $ipn['created'] = REQUEST_TIME;
     $ipn['changed'] = REQUEST_TIME;
     // Attempt to save the IPN
-    if (drupal_write_record('commerce_paypal_ipn', $ipn)) {
+    if (drupal_write_record('commerce_paypal_chained_ipn', $ipn)) {
       // Success - store the ipn transactions
       if (commerce_paypal_chained_ipn_transactions_save($ipn_transactions, $ipn['ipn_id'])) {
         $ipn['transaction'] = $ipn_transactions;
@@ -316,10 +316,25 @@ function commerce_paypal_chained_ipn_save(&$ipn) {
   }
 }
 
-// TODO comment this
+/**
+ * Saves an IPN's transactions with some meta data related to local processing.
+ *
+ * @param $ipn_transactions
+ *   An IPN transactions array.
+ * @param $ipn_id
+ *   The ipn_id of the parent IPN.
+ *
+ * @return
+ *   TRUE on success, FALSE on failure; since the IPN transactions are
+ *     received by reference, they will also contain the serial numeric
+ *      ipn_transaction_ids used locally.
+ */
 function commerce_paypal_chained_ipn_transactions_save(&$ipn_transactions, $ipn_id) {
   foreach ($ipn_transactions as $key => $ipn_transaction) {
+    // Associate this ipn transaction with its parent IPN
     $ipn_transaction['ipn_id'] = $ipn_id;
+    // Break out currency code and gross transaction amount from the amount line
+    list($ipn_transaction['currency'], $ipn_transaction['gross']) = explode(' ', $ipn_transaction['amount']);
     if (!empty($ipn_transaction['ipn_transaction_id'])) {
       // Pre-existing ipn transaction
       if (drupal_write_record('commerce_paypal_chained_ipn_transaction', $ipn_transaction, 'ipn_transaction_id')) {
@@ -346,17 +361,19 @@ function commerce_paypal_chained_ipn_transactions_save(&$ipn_transactions, $ipn_
 }
 
 /**
- * Deletes a stored IPN by ID.
+ * Deletes a stored chained payment IPN by ID.
  *
  * @param $id
- *   The ID of the IPN to delete.
- * @param $type
- *   The type of ID you've specified, either the serial numeric ipn_id or the
- *     actual PayPal txn_id. Defaults to txn_id.
+ *   The ipn_id of the IPN you wish to delete.
  */
-function commerce_paypal_chained_ipn_delete($id, $type = 'txn_id') {
-  db_delete('commerce_paypal_ipn')
-    ->condition($type, $id)
+function commerce_paypal_chained_ipn_delete($id) {
+  // Delete out any of this IPN's chained transactions
+  db_delete('commerce_paypal_chained_ipn_transaction')
+    ->condition('ipn_id', $id)
+    ->execute();
+  // Delete the IPN itself
+  db_delete('commerce_paypal_chained_ipn')
+    ->condition('ipn_id', $id)
     ->execute();
 }
 
