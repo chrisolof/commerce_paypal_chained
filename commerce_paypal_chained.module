@@ -642,8 +642,30 @@ function commerce_paypal_chained_process_ipn($debug_ipn = array()) {
  *   price, and other parameters as possible.
  */
 function commerce_paypal_chained_paypal_ipn_validate($order, $payment_method, $ipn) {
-  // TODO - return FALSE if chain described in this IPN doesn't match this
-  // order's chain
+  // Return FALSE if chain described in this IPN doesn't match the chain we have
+  // recorded for this order
+  $known_chain_serialized = db_select('commerce_paypal_chained_pay_chain', 'cpcpc')
+    ->fields('cpcpc.data')
+    ->condition('cpcpc.order_id', $order->order_id)
+    ->execute()
+    ->fetchField();
+  if (!empty($known_chain_serialized)) {
+    $known_chain = unserialize($known_chain_serialized);
+    // First off - are we looking at the same number of receivers?
+    if (count($known_chain) == count($ipn['transaction'])) {
+      // Loop through the ipn transactions chain verifying the values match our
+      // known chain
+      foreach ($ipn['transaction'] as $key => $transaction) {
+        // TODO
+      }
+    }
+    else {
+      return FALSE;
+    }
+  }
+  else {
+    return FALSE;
+  }
 
   // Prepare the IPN data for inclusion in the watchdog message if enabled.
   $ipn_data = '';
@@ -674,134 +696,51 @@ function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$i
   }
   // Great - we're looking at a completed chained payment
   // Store each of the effective payments as commerce transactions
-  foreach ($ipn['transaction'] as $transaction) {
-    
-  }
-  $transaction = commerce_payment_transaction_new('paypal_chained', $order->order_id);
-  $transaction->instance_id = $payment_method['instance_id'];
-  
-  $transaction->remote_id = $ipn['pay_key'];
-  $transaction->amount = $amount;
-  $transaction->currency_code = $order_currency_code;
-  $transaction->payload[REQUEST_TIME . '-ipn'] = $ipn;
-
-  // Set the transaction's statuses based on the IPN's payment_status.
-  $transaction->remote_status = $ipn['status'];
-
-  // If we didn't get an approval response code...
-  switch ($ipn['status']) {
-    case 'COMPLETED':
-      $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
-      $transaction->message = t('The payment has completed.');
-      break;
-  }
-  
-  // Save the transaction information.
-  commerce_payment_transaction_save($transaction);
-  $ipn['transaction_id'] = $transaction->transaction_id;
-  
-  commerce_payment_redirect_pane_next_page($order);
-  watchdog('commerce_paypal_wps', 'IPN processed for Order @order_number with ID @txn_id.', array('@txn_id' => $ipn['txn_id'], '@order_number' => $order->order_number), WATCHDOG_INFO);
-  
-  
-  
-  
-  
-  
-  
-  
-  
-
-  // If this is a prior authorization capture IPN for which we've already
-  // created a transaction...
-  if (in_array($ipn['payment_status'], array('Voided', 'Completed')) &&
-    !empty($ipn['auth_id']) && $auth_ipn = commerce_paypal_chained_ipn_load($ipn['auth_id'])) {
-    // Load the prior IPN's transaction and update that with the capture values.
-    $transaction = commerce_payment_transaction_load($auth_ipn['transaction_id']);
-  }
-  else {
-    // Create a new payment transaction for the order.
+  foreach ($ipn['transaction'] as $key => $ipn_transaction) {
     $transaction = commerce_payment_transaction_new('paypal_chained', $order->order_id);
     $transaction->instance_id = $payment_method['instance_id'];
-  }
-
-  $transaction->remote_id = $ipn['pay_key'];
-  $transaction->amount = commerce_currency_decimal_to_amount($ipn['mc_gross'], $ipn['mc_currency']);
-  $transaction->currency_code = $ipn['mc_currency'];
-  $transaction->payload[REQUEST_TIME . '-ipn'] = $ipn;
-
-  // Set the transaction's statuses based on the IPN's payment_status.
-  $transaction->remote_status = $ipn['payment_status'];
-
-  // If we didn't get an approval response code...
-  switch ($ipn['payment_status']) {
-    case 'Failed':
-      $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
-      $transaction->message = t("The payment has failed. This happens only if the payment was made from your customer’s bank account.");
-      break;
-
-    case 'Voided':
-      $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
-      $transaction->message = t('The authorization was voided.');
-      break;
-
-    case 'Pending':
-      $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
-      $transaction->message = commerce_paypal_ipn_pending_reason($ipn['pending_reason']);
-      break;
-
-    case 'Completed':
-      $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
-      $transaction->message = t('The payment has completed.');
-      break;
-
-    case 'Refunded':
-      $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
-      $transaction->message = t('Refund for transaction @pay_key', array('@pay_key' => $ipn['parent_txn_id']));
-      break;
-  }
-
-  // Save the transaction information.
-  commerce_payment_transaction_save($transaction);
-  $ipn['transaction_id'] = $transaction->transaction_id;
-
-  // Create a billing profile based on the IPN if enabled.
-  if (!empty($payment_method['settings']['ipn_create_billing_profile']) && isset($order->commerce_customer_billing)) {
-    $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
-
-    // If this order does not have a billing profile yet...
-    if ($order_wrapper->commerce_customer_billing->value() === NULL) {
-      // Ensure we have the required data in the IPN.
-      if (empty($ipn['residence_country']) || empty($ipn['first_name']) || empty($ipn['last_name'])) {
-        $data = array_intersect_key($ipn, drupal_map_assoc(array('residence_country', 'first_name', 'last_name')));
-        watchdog('commerce_paypal_chained', 'A billing profile for Order @order_number could not be created due to insufficient data in the IPN:!data', array('@order_number' => $order->order_number, '!data' => '<pre>'. check_plain(print_r($data, TRUE)) .'</pre>'), WATCHDOG_WARNING);
-      }
-      else {
-        // Create the new profile now.
-        $profile = commerce_customer_profile_new('billing', $order->uid);
-
-        // Add the address value.
-        $profile_wrapper = entity_metadata_wrapper('commerce_customer_profile', $profile);
-
-        $profile_wrapper->commerce_customer_address = array_merge(addressfield_default_values(), array(
-          'country' => $ipn['residence_country'],
-          'name_line' => $ipn['first_name'] . ' ' . $ipn['last_name'],
-          'first_name' => $ipn['first_name'],
-          'last_name' => $ipn['last_name'],
-        ));
-
-        // Save the profile, reference it from the order, and save the order.
-        $profile_wrapper->save();
-        $order_wrapper->commerce_customer_billing = $profile_wrapper;
-        $order_wrapper->save();
-
-        watchdog('commerce_paypal_chained', 'Billing profile created for Order @order_number containing the first and last names and residence country of the customer based on IPN data.', array('@order_number' => $order->order_number));
+    $transaction->remote_id = $ipn['pay_key'];
+    // amount contains the currency code and the transaction amount
+    list($transaction->currency_code, $transaction->amount) = explode(' ', $ipn_transaction['amount']);
+    // If this is the primary transaction, deduct the secondary transactions
+    // from it (leaving the primary transaction with what the primary receiver
+    // effectively received when all was said and done).  This helps describe
+    // who got paid what on the payments tab of an order, and ensures the sum
+    // of all of the payments totals to the order total.
+    if ($ipn_transaction['is_primary_receiver'] == 'true') {
+      foreach ($ipn['transaction'] as $ipn_transaction_inner) {
+        if ($ipn_transaction_inner['is_primary_receiver'] == 'false') {
+          list( , $inner_amount) = explode(' ', $ipn_transaction_inner['amount']);
+          $transaction->amount -= $inner_amount;
+        }
       }
     }
-  }
+    $transaction->payload[REQUEST_TIME . '-ipn'] = $ipn;
+    // Set the transaction's statuses based on the IPN transaction's status.
+    $transaction->remote_status = $ipn_transaction['status'];
+    // Set our internal transaction status
+    switch ($ipn_transaction['status']) {
+      case 'Pending':
+        $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+        $transaction->message = t('The payment is pending.');
+        break;
 
-  commerce_payment_redirect_pane_next_page($order);
-  watchdog('commerce_paypal_chained', 'IPN processed for Order @order_number with ID @pay_key.', array('@pay_key' => $ipn['pay_key'], '@order_number' => $order->order_number), WATCHDOG_INFO);
+      case 'Completed':
+        $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+        $transaction->message = t('The payment has completed.');
+        break;
+
+      case 'Refunded':
+        $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+        $transaction->message = t('Refund for transaction @pay_key', array('@pay_key' => $ipn['parent_txn_id']));
+        break;
+    }
+    // Save the transaction information.
+    commerce_payment_transaction_save($transaction);
+    $ipn['transaction'][$key]['transaction_id'] = $transaction->transaction_id;
+    commerce_payment_redirect_pane_next_page($order);
+    watchdog('commerce_paypal_chained', 'IPN processed for Order @order_number with ID @pay_key.', array('@pay_key' => $ipn['pay_key'], '@order_number' => $order->order_number), WATCHDOG_INFO);
+  }
 }
 
 /**
@@ -828,87 +767,87 @@ function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$i
  */
 function commerce_paypal_chained_order_form($form, &$form_state, $order, $settings) {
   $wrapper = entity_metadata_wrapper('commerce_order', $order);
-
   // Determine the currency code to use to actually process the transaction,
   // which will either be the default currency code or the currency code of the
   // order if it's supported by PayPal if that option is enabled.
   $currency_code = $settings['currency_code'];
   $order_currency_code = $wrapper->commerce_order_total->currency_code->value();
-
   if (!empty($settings['allow_supported_currencies']) && in_array($order_currency_code, array_keys(commerce_paypal_currencies('paypal_chained')))) {
     $currency_code = $order_currency_code;
   }
-
   $amount = $wrapper->commerce_order_total->amount->value();
-
   // Ensure a default value for the payment_method setting.
   $settings += array('payment_method' => '');
-
-  // Build the data array that will be translated into hidden form values.
-  $data = array(
-    // Specify the checkout experience to present to the user.
-    'cmd' => '_cart',
-
-    // Signify we're passing in a shopping cart from our system.
-    'upload' => 1,
-
-    // The store's PayPal e-mail address
-    'business' => $settings['business'],
-
-    // The path PayPal should send the IPN to
-    'notify_url' => commerce_paypal_ipn_url($settings['payment_method']),
-
-    // Set the correct character set
-    'charset' => 'utf-8',
-
-    // Do not display a comments prompt at PayPal
-    'no_note' => 1,
-
-    // Do not display a shipping address prompt at PayPal
-    'no_shipping' => 1,
-
-    // Return to the review page when payment is canceled
-    'cancel_return' => $settings['cancel_return'],
-
-    // Return to the payment redirect page for processing successful payments
-    'return' => $settings['return'],
-
-    // Return to this site with payment data in the POST
-    'rm' => 2,
-
-    // The type of payment action PayPal should take with this order
-    'paymentaction' => $settings['payment_action'],
-
-    // Set the currency and language codes
-    'currency_code' => $currency_code,
-    'lc' => $settings['language'],
-
-    // Use the timestamp to generate a unique invoice number
-    'invoice' => commerce_paypal_ipn_invoice($order),
-
-    // Define a single item in the cart representing the whole order
-    'amount_1' => commerce_paypal_price_amount(commerce_currency_convert($amount, $order_currency_code, $currency_code), $currency_code),
-    'item_name_1' => t('Order @order_number at @store', array('@order_number' => $order->order_number, '@store' => variable_get('site_name', url('<front>', array('absolute' => TRUE))))),
-    'on0_1' => t('Product count'),
-    'os0_1' => commerce_line_items_quantity($wrapper->commerce_line_items, commerce_product_line_item_types()),
+  // Populate the receivers array (define our chained payment)
+  // We'll define the first receiver as our primary
+  $receivers = array(
+    0 => array(
+      'amount' => $amount,
+      'email' => (module_exists('token')) ? token_replace($settings['primary_receiver_email'], array('commerce_order' => $order)) : $settings['primary_receiver_email'],
+      'primary' => 'true',
+    ),
   );
-
-  // Allow modules to alter parameters of the API request.
-  drupal_alter('commerce_paypal_chained_order_form_data', $data, $order);
-
-  $form['#action'] = commerce_paypal_chained_server_url($settings['server']);
-
-  foreach ($data as $name => $value) {
-    if (!empty($value)) {
-      $form[$name] = array('#type' => 'hidden', '#value' => $value);
+  // Fill out our receiver array with our remaining secondary receivers
+  for ($i = 0; $i < 4; $i++) {
+    // If we have a percentage and an email address for this receiver 
+    if (!empty($settings['secondary_receiver_' . $i . '_email']) && !empty($settings['secondary_receiver_' . $i . '_percentage'])) {
+      // Our setting form breaks up receiver amounts by percentages of the total
+      // order amount
+      $percentage = (module_exists('token')) ? token_replace($settings['secondary_receiver_' . $i . '_percentage'], array('commerce_order' => $order)) : $settings['secondary_receiver_' . $i . '_percentage'];
+      // Calculate the actual amount to allocate to this secondary receiver
+      $calculated_amount = ($percentage / 100.00) * $amount;
+      $receivers[] = array(
+        'amount' => $calculated_amount,
+        'email' => (module_exists('token')) ? token_replace($settings['secondary_receiver_' . $i . '_email'], array('commerce_order' => $order)) : $settings['secondary_receiver_' . $i . '_email'],
+        'primary' => 'false',
+      );
     }
   }
-
+  $memo = t('Order @order_number at @store', array('@order_number' => $order->order_number, '@store' => variable_get('site_name', url('<front>', array('absolute' => TRUE)))));
+  // Use the commerce_paypal ipn invoice number so we associate the IPN response
+  // with this order when it comes back.
+  $tracking_id = commerce_paypal_ipn_invoice($order);
+  // We've defined our own IPN url for this module, which is why we're not using
+  // commerce_paypal_ipn_url() here.
+  $ipn_url = url('commerce_paypal/paypal-chained/ipn', array('absolute' => TRUE));
+  // Reach out to PayPal for a paykey to associate with this order
+  // The Pay Key essentially defines our chained payment on PayPal's end, and
+  // we'll need to pass this, along with the user, over to PayPal.
+  $pay_key = commerce_paypal_wps_chained_payment_get_paykey(
+    $receivers,
+    $memo,
+    $tracking_id,
+    $settings['application_id'],
+    $currency_code,
+    $settings['cancel_return'],
+    $settings['return'],
+    $ipn_url,
+    $settings['server'],
+    $settings['api_username'],
+    $settings['api_password'],
+    $settings['api_signature']
+  );
+  // If we got a pay key back, then we're clear to transact with these settings,
+  // in which case we'll store a copy of the chain details for IPN validation
+  if (!empty($pay_key)) {
+    // If a previous pay chain was associated with this order, delete it
+    db_delete('commerce_paypal_chained_pay_chain')
+      ->condition('order_id', $order->order_id)
+      ->execute();
+    // Store our order's pay chain, as we've defined it above
+    $pay_chain = array(
+      'order_id' => $order->order_id,
+      'pay_key' => $pay_key,
+      'data' => serialize($receivers),
+    );
+    drupal_write_record('commerce_paypal_chained_pay_chain', $pay_chain);
+  }
+  // Set our form action to 
+  $form['#action'] = commerce_paypal_chained_server_url($settings['server']) . '?cmd=_ap-payment&paykey=' . $pay_key;
   $form['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Proceed to PayPal'),
   );
-
   return $form;
 }
 
@@ -970,4 +909,117 @@ function commerce_paypal_chained_languages() {
       'zh_TW' => t('Traditional Chinese (for Taiwan only)'),
     ),
   );
+}
+
+/**
+ * Returns a PayPal Adaptive Payments PayKey for a proposed transaction.
+ *
+ * The total payment amount should be directed at the primary receiver, whom
+ * the buyer will pay directly.  The subsequent receivers will then recieve
+ * their payment amounts directly from the primary receiver.
+ *
+ * @param array $receivers
+ *   An array of receivers of this payment, eg.,
+ *    array(
+ *      0 => array(
+ *        'amount' => 10,
+ *        'email' => 'receiver1@example.com',
+ *        'primary' => 'true',
+ *      ),
+ *      1 => array(
+ *        'amount' => 5,
+ *        'email' => 'receiver2@example.com',
+ *        'primary' => 'false',
+ *      ),
+ *    );
+ * @param string $memo
+ *   A note associated with the payment.
+ * @param string $tracking_id
+ *   A unique ID that you specify to track the payment.
+ * @param string $application_id
+ *   Your PayPal application's identification, issued by PayPal.
+ * @param string $currency_code
+ *   The code for the currency in which the payment is made.
+ * @param string $cancel_url
+ *   URL to redirect the sender's browser to after canceling the approval for
+ *   a payment.
+ * @param string $return_url
+ *   URL to redirect the sender's browser to after the sender has logged into
+ *   PayPal and approved a payment.
+ * @param string $ipn_url
+ *   The URL to which you want all IPN messages for this payment to be sent.
+ * @param string $server
+ *   Whether to use the sandbox or live (production) endpoint for this API
+ *   call.
+ * @param string $api_username
+ *   Your PayPal API username.
+ * @param string $api_password
+ *   Your PayPal API password.
+ * @param string $api_signature
+ *   Your PayPal API signature.
+ */
+function commerce_paypal_chained_get_paykey($receivers, $memo = '', $tracking_id = '', $application_id, $currency_code, $cancel_url, $return_url, $ipn_url, $server = 'sandbox', $api_username, $api_password, $api_signature) {
+  // Build our payrequest
+  $pay_request = array(
+    'actionType' => 'PAY',
+    'receiverList' => array(
+      'receiver' => $receivers,
+    ),
+    'memo' => $memo,
+    'trackingId' => $tracking_id,
+    'clientDetails' => array(
+      'applicationId' => $application_id,
+    ),
+    'currencyCode' => $currency_code,
+    'cancelUrl' => $cancel_url,
+    'returnUrl' => $return_url,
+    'ipnNotificationUrl' => $ipn_url,
+    'requestEnvelope' => array(
+      'errorLanguage' => 'en_US',
+    ),
+  );
+  // Convert it to JSON
+  $pay_request_json = json_encode($pay_request);
+  // Initialize cURL with our desired API endpoint
+  switch ($server) {
+    case 'sandbox':
+      $ch = curl_init('https://svcs.sandbox.paypal.com/AdaptivePayments/Pay');
+      break;
+    case 'live':
+      $ch = curl_init('https://svcs.paypal.com/AdaptivePayments/Pay');
+      break;
+  }
+  // We'll be sending POST data
+  curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+  // The data is our JSON string
+  curl_setopt($ch, CURLOPT_POSTFIELDS, $pay_request_json);
+  // Instead of outputting the response, return it in a string as the result
+  // of our call to curl_exec().
+  curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+  // Set our request headers
+  curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+    'Content-Type: application/json',
+    'Content-Length: ' . strlen($pay_request_json),
+    'X-PAYPAL-SECURITY-USERID: ' . $api_username,
+    'X-PAYPAL-SECURITY-PASSWORD: ' . $api_password,
+    'X-PAYPAL-SECURITY-SIGNATURE: ' . $api_signature,
+    'X-PAYPAL-REQUEST-DATA-FORMAT: JSON',
+    'X-PAYPAL-RESPONSE-DATA-FORMAT: JSON',
+    'X-PAYPAL-APPLICATION-ID: ' . $application_id,
+  ));
+  // Execute this request, storing the result
+  $result = curl_exec($ch);
+  // All done with cURL, close our connection
+  curl_close($ch);
+  // Our response was in JSON, so decode it into a PHP object
+  $result = json_decode($result);
+  // If PayPal gave us an acknowledgement of success and a paykey, proceed
+  if (strtolower($result->responseEnvelope->ack) == 'success' && !empty($result->payKey)) {
+    // Return the PayKey
+    return $result->payKey;
+  }
+  // Else something went wrong - PayPal didn't like what we sent
+  else {
+    return FALSE;
+  }
 }
