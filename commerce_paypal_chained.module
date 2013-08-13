@@ -645,7 +645,7 @@ function commerce_paypal_chained_paypal_ipn_validate($order, $payment_method, $i
   // Return FALSE if chain described in this IPN doesn't match the chain we have
   // recorded for this order
   $result = db_select('commerce_paypal_chained_pay_chain', 'cpcpc')
-    ->fields('cpcpc', array('currency', 'data')
+    ->fields('cpcpc', array('currency', 'data'))
     ->condition('cpcpc.order_id', $order->order_id)
     ->execute();
   if (!empty($result->data)) {

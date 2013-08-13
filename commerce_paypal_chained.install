@@ -170,7 +170,7 @@ function commerce_paypal_chained_schema() {
         'default' => '',
       ),
     ),
-    'primary key' => array('transaction_id'),
+    'primary key' => array('ipn_transaction_id'),
     'foreign keys' => array(
       'ipn_id' => array(
         'table' => 'commerce_paypal_chained_ipn',
@@ -225,9 +225,6 @@ function commerce_paypal_chained_schema() {
       ),
     ),
     'primary key' => array('pay_chain_id'),
-    'unique keys' => array(
-      'order_id' => array('order_id'),
-    ),
     'foreign keys' => array(
       'order_id' => array(
         'table' => 'commerce_order',
@@ -243,6 +240,9 @@ function commerce_paypal_chained_schema() {
   return $schema;
 }
 
+/**
+ * Implements hook_install().
+ */
 function commerce_paypal_chained_install() {
   // Define the payment receiver field and create it
   $field = array (
@@ -377,4 +377,12 @@ function commerce_paypal_chained_install() {
     'deleted' => '0',
   );
   field_create_instance($field_instance);
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function commerce_paypal_chained_uninstall() {
+  // Queue up our field_chained_receiver_email field for deletion.
+  field_delete_field('field_chained_receiver_email');
 }
