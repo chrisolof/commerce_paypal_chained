@@ -67,16 +67,30 @@ function commerce_paypal_chained_default_settings() {
     'ipn_logging' => 'notification',
     'ipn_create_billing_profile' => FALSE,
     'show_payment_instructions' => FALSE,
-    'primary_receiver_percentage' => '100.00',
-    'primary_receiver_email' => '',
-    'secondary_receiver_0_percentage' => '',
-    'secondary_receiver_0_email' => '',
-    'secondary_receiver_1_percentage' => '',
-    'secondary_receiver_1_email' => '',
-    'secondary_receiver_2_percentage' => '',
-    'secondary_receiver_2_email' => '',
-    'secondary_receiver_3_percentage' => '',
-    'secondary_receiver_3_email' => '',
+    'pay_chain' => array(
+      'primary_receiver' => array(
+        'primary_receiver_percentage' => '100.00',
+        'primary_receiver_email' => '',
+      ),
+      'secondary_receivers' => array(
+        'secondary_receiver_0' => array(
+          'secondary_receiver_0_percentage' => '',
+          'secondary_receiver_0_email' => '',
+        ),
+        'secondary_receiver_1' => array(
+          'secondary_receiver_1_percentage' => '',
+          'secondary_receiver_1_email' => '',
+        ),
+        'secondary_receiver_2' => array(
+          'secondary_receiver_2_percentage' => '',
+          'secondary_receiver_2_email' => '',
+        ),
+        'secondary_receiver_3' => array(
+          'secondary_receiver_3_percentage' => '',
+          'secondary_receiver_3_email' => '',
+        )
+      ),
+    ),
   );
 }
 
@@ -177,7 +191,7 @@ function commerce_paypal_chained_settings_form($settings = array()) {
     '#type' => 'textfield',
     '#title' => t('Percentage'),
     '#description' => t('The percentage of the commerce order total to send to this receiver.'),
-    '#default_value' => $settings['primary_receiver_percentage'],
+    '#default_value' => $settings['pay_chain']['primary_receiver']['primary_receiver_percentage'],
     '#field_suffix' => '%',
     '#required' => TRUE,
     '#disabled' => TRUE,
@@ -187,7 +201,8 @@ function commerce_paypal_chained_settings_form($settings = array()) {
     '#type' => 'textfield',
     '#title' => t('Receiver\'s PayPal e-mail address'),
     '#description' => t('The e-mail address of the receiver\'s PayPal account.'),
-    '#default_value' => $settings['primary_receiver_email'],
+    '#default_value' => $settings['pay_chain']['primary_receiver']['primary_receiver_email'],
+    '#required' => TRUE,
   );
   $form['pay_chain']['secondary_receivers'] = array(
     '#type' => 'fieldset',
@@ -207,7 +222,7 @@ function commerce_paypal_chained_settings_form($settings = array()) {
       '#type' => 'textfield',
       '#title' => t('Percentage'),
       '#description' => t('The percentage of the commerce order total to send to this receiver.'),
-      '#default_value' => $settings['secondary_receiver_' . $i . '_percentage'],
+      '#default_value' => $settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_percentage'],
       '#field_suffix' => '%',
       '#size' => 6,
     );
@@ -215,7 +230,7 @@ function commerce_paypal_chained_settings_form($settings = array()) {
       '#type' => 'textfield',
       '#title' => t('Receiver\'s PayPal e-mail address'),
       '#description' => t('The e-mail address of the receiver\'s PayPal account.'),
-      '#default_value' => $settings['secondary_receiver_' . $i . '_email'],
+      '#default_value' => $settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'],
     );
   }
   // If token is installed, this paychain is token-enabled
@@ -276,8 +291,12 @@ function commerce_paypal_chained_form_commerce_checkout_form_alter(&$form, &$for
  */
 function commerce_paypal_chained_redirect_form($form, &$form_state, $order, $payment_method) {
   // Return an error if the enabling action's settings haven't been configured.
-  if (empty($payment_method['settings']['business'])) {
-    drupal_set_message(t('PayPal Chained is not configured for use. No PayPal e-mail address has been specified.'), 'error');
+  if (empty($payment_method['settings']['application_id']) || 
+    empty($payment_method['settings']['api_username']) || 
+    empty($payment_method['settings']['api_password']) || 
+    empty($payment_method['settings']['api_signature']) || 
+    empty($payment_method['settings']['primary_receiver_email'])) {
+    drupal_set_message(t('PayPal Chained is not configured for use.'), 'error');
     return array();
   }
 
@@ -794,22 +813,22 @@ function commerce_paypal_chained_order_form($form, &$form_state, $order, $settin
   $receivers = array(
     0 => array(
       'amount' => $amount,
-      'email' => (module_exists('token')) ? token_replace($settings['primary_receiver_email'], array('commerce_order' => $order)) : $settings['primary_receiver_email'],
+      'email' => (module_exists('token')) ? token_replace($settings['pay_chain']['primary_receiver']['primary_receiver_email'], array('commerce_order' => $order)) : $settings['pay_chain']['primary_receiver']['primary_receiver_email'],
       'primary' => 'true',
     ),
   );
   // Fill out our receiver array with our remaining secondary receivers
   for ($i = 0; $i < 4; $i++) {
     // If we have a percentage and an email address for this receiver 
-    if (!empty($settings['secondary_receiver_' . $i . '_email']) && !empty($settings['secondary_receiver_' . $i . '_percentage'])) {
+    if (!empty($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email']) && !empty($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_percentage'])) {
       // Our setting form breaks up receiver amounts by percentages of the total
       // order amount
-      $percentage = (module_exists('token')) ? token_replace($settings['secondary_receiver_' . $i . '_percentage'], array('commerce_order' => $order)) : $settings['secondary_receiver_' . $i . '_percentage'];
+      $percentage = (module_exists('token')) ? token_replace($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_percentage'], array('commerce_order' => $order)) : $settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_percentage'];
       // Calculate the actual amount to allocate to this secondary receiver
       $calculated_amount = ($percentage / 100.00) * $amount;
       $receivers[] = array(
         'amount' => $calculated_amount,
-        'email' => (module_exists('token')) ? token_replace($settings['secondary_receiver_' . $i . '_email'], array('commerce_order' => $order)) : $settings['secondary_receiver_' . $i . '_email'],
+        'email' => (module_exists('token')) ? token_replace($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'], array('commerce_order' => $order)) : $settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'],
         'primary' => 'false',
       );
     }
