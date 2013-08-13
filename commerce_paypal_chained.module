@@ -235,7 +235,7 @@ function commerce_paypal_chained_settings_form($settings = array()) {
   }
   // If token is installed, this paychain is token-enabled
   if (module_exists('token')) {
-    $form['tokens'] = array(
+    $form['pay_chain']['tokens'] = array(
       '#theme' => 'token_tree',
       '#token_types' => array('commerce-order'),
     );
