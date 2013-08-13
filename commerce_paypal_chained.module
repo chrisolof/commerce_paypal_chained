@@ -60,7 +60,7 @@ function commerce_paypal_chained_default_settings() {
     'api_username' => '',
     'api_password' => '',
     'api_signature' => '',
-    'currency_code' => in_array($default_currency, array_keys(commerce_paypal_currencies('paypal_chained'))) ? $default_currency : 'USD',
+    'currency_code' => in_array($default_currency, array_keys(commerce_paypal_chained_currencies())) ? $default_currency : 'USD',
     'allow_supported_currencies' => FALSE,
     'language' => 'US',
     'server' => 'sandbox',
@@ -121,7 +121,7 @@ function commerce_paypal_chained_settings_form($settings = array()) {
     '#type' => 'select',
     '#title' => t('Default currency'),
     '#description' => t('Transactions in other currencies will be converted to this currency, so multi-currency sites must be configured to use appropriate conversion rates.'),
-    '#options' => commerce_paypal_currencies('paypal_chained'),
+    '#options' => commerce_paypal_chained_currencies(),
     '#default_value' => $settings['currency_code'],
   );
   $form['allow_supported_currencies'] = array(
@@ -181,6 +181,7 @@ function commerce_paypal_chained_settings_form($settings = array()) {
     '#field_suffix' => '%',
     '#required' => TRUE,
     '#disabled' => TRUE,
+    '#size' => 6,
   );
   $form['pay_chain']['primary_receiver']['primary_receiver_email'] = array(
     '#type' => 'textfield',
@@ -208,6 +209,7 @@ function commerce_paypal_chained_settings_form($settings = array()) {
       '#description' => t('The percentage of the commerce order total to send to this receiver.'),
       '#default_value' => $settings['secondary_receiver_' . $i . '_percentage'],
       '#field_suffix' => '%',
+      '#size' => 6,
     );
     $form['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'] = array(
       '#type' => 'textfield',
@@ -218,14 +220,9 @@ function commerce_paypal_chained_settings_form($settings = array()) {
   }
   // If token is installed, this paychain is token-enabled
   if (module_exists('token')) {
-    $form['pay_chain']['token_help'] = array(
-      '#title' => t('Replacement patterns'),
-      '#type' => 'fieldset',
-      '#collapsible' => TRUE,
-      '#collapsed' => TRUE,
-    );
-    $form['pay_chain']['token_help']['help'] = array(
-      '#value' => theme('token_help', 'commerce_order'),
+    $form['tokens'] = array(
+      '#theme' => 'token_tree',
+      '#token_types' => array('commerce-order'),
     );
   }
   return $form;
@@ -1037,4 +1034,16 @@ function commerce_paypal_chained_get_paykey($receivers, $memo = '', $tracking_id
   else {
     return FALSE;
   }
+}
+
+/**
+ * Returns an array of all possible currency codes for the PayPal Chained
+ * payment method.
+ *
+ * @return
+ *   An associative array of currency codes with keys and values being the
+ *   currency codes accepted by the PayPal Chained payment method.
+ */
+function commerce_paypal_chained_currencies() {
+  return drupal_map_assoc(array('AUD', 'BRL', 'CAD', 'CHF', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'ILS', 'JPY', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'SEK', 'SGD', 'THB', 'TRY', 'TWD', 'USD'));
 }
