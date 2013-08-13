@@ -209,6 +209,13 @@ function commerce_paypal_chained_schema() {
         'not null' => TRUE,
         'default' => '',
       ),
+      'currency' => array(
+        'description' => 'The currency code of the pay chain.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
       'data' => array(
         'type' => 'blob',
         'not null' => FALSE,

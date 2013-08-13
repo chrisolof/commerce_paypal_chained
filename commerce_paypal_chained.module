@@ -644,26 +644,40 @@ function commerce_paypal_chained_process_ipn($debug_ipn = array()) {
 function commerce_paypal_chained_paypal_ipn_validate($order, $payment_method, $ipn) {
   // Return FALSE if chain described in this IPN doesn't match the chain we have
   // recorded for this order
-  $known_chain_serialized = db_select('commerce_paypal_chained_pay_chain', 'cpcpc')
-    ->fields('cpcpc.data')
+  $result = db_select('commerce_paypal_chained_pay_chain', 'cpcpc')
+    ->fields('cpcpc', array('currency', 'data')
     ->condition('cpcpc.order_id', $order->order_id)
-    ->execute()
-    ->fetchField();
-  if (!empty($known_chain_serialized)) {
-    $known_chain = unserialize($known_chain_serialized);
+    ->execute();
+  if (!empty($result->data)) {
+    // The chain array is held in a serialized data field
+    $known_chain = unserialize($result->data);
     // First off - are we looking at the same number of receivers?
     if (count($known_chain) == count($ipn['transaction'])) {
       // Loop through the ipn transactions chain verifying the values match our
       // known chain
-      foreach ($ipn['transaction'] as $key => $transaction) {
-        // TODO
+      foreach ($ipn['transaction'] as $key => $ipn_transaction) {
+        // Break out our currency code and transaction amount
+        list($currency, $gross) = explode(' ', $ipn_transaction['amount']);
+        // Test for consistency with what we have on file
+        if ($gross != $known_chain[$key]['amount'] || 
+          $ipn_transaction['receiver'] != $known_chain[$key]['email'] || 
+          $currency != $result->currency || 
+          $ipn_transaction['is_primary_receiver'] != $known_chain[$key]['primary']) {
+          commerce_payment_redirect_pane_previous_page($order);
+          watchdog('commerce_paypal_chained', 'IPN rejected: invalid pay chain specified for Order @order_number; must match the pay chain on file for this order.', array('@order_number' => $order->order_number), WATCHDOG_NOTICE);
+          return FALSE;
+        }
       }
     }
     else {
+      commerce_payment_redirect_pane_previous_page($order);
+      watchdog('commerce_paypal_chained', 'IPN rejected: invalid pay chain specified for Order @order_number; wrong number of receivers.', array('@order_number' => $order->order_number), WATCHDOG_NOTICE);
       return FALSE;
     }
   }
   else {
+    commerce_payment_redirect_pane_previous_page($order);
+    watchdog('commerce_paypal_chained', 'IPN rejected: no pay chain on file for Order @order_number.', array('@order_number' => $order->order_number), WATCHDOG_NOTICE);
     return FALSE;
   }
 
@@ -838,6 +852,7 @@ function commerce_paypal_chained_order_form($form, &$form_state, $order, $settin
     $pay_chain = array(
       'order_id' => $order->order_id,
       'pay_key' => $pay_key,
+      'currency' => $currency_code,
       'data' => serialize($receivers),
     );
     drupal_write_record('commerce_paypal_chained_pay_chain', $pay_chain);
