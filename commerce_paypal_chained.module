@@ -295,7 +295,7 @@ function commerce_paypal_chained_redirect_form($form, &$form_state, $order, $pay
     empty($payment_method['settings']['api_username']) || 
     empty($payment_method['settings']['api_password']) || 
     empty($payment_method['settings']['api_signature']) || 
-    empty($payment_method['settings']['primary_receiver_email'])) {
+    empty($payment_method['settings']['pay_chain']['primary_receiver']['primary_receiver_email'])) {
     drupal_set_message(t('PayPal Chained is not configured for use.'), 'error');
     return array();
   }
@@ -813,7 +813,7 @@ function commerce_paypal_chained_order_form($form, &$form_state, $order, $settin
   $receivers = array(
     0 => array(
       'amount' => $amount,
-      'email' => (module_exists('token')) ? token_replace($settings['pay_chain']['primary_receiver']['primary_receiver_email'], array('commerce_order' => $order)) : $settings['pay_chain']['primary_receiver']['primary_receiver_email'],
+      'email' => (module_exists('token')) ? token_replace($settings['pay_chain']['primary_receiver']['primary_receiver_email'], array('commerce-order' => $order)) : $settings['pay_chain']['primary_receiver']['primary_receiver_email'],
       'primary' => 'true',
     ),
   );
@@ -823,12 +823,12 @@ function commerce_paypal_chained_order_form($form, &$form_state, $order, $settin
     if (!empty($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email']) && !empty($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_percentage'])) {
       // Our setting form breaks up receiver amounts by percentages of the total
       // order amount
-      $percentage = (module_exists('token')) ? token_replace($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_percentage'], array('commerce_order' => $order)) : $settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_percentage'];
+      $percentage = (module_exists('token')) ? token_replace($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_percentage'], array('commerce-order' => $order)) : $settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_percentage'];
       // Calculate the actual amount to allocate to this secondary receiver
       $calculated_amount = ($percentage / 100.00) * $amount;
       $receivers[] = array(
         'amount' => $calculated_amount,
-        'email' => (module_exists('token')) ? token_replace($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'], array('commerce_order' => $order)) : $settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'],
+        'email' => (module_exists('token')) ? token_replace($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'], array('commerce-order' => $order)) : $settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'],
         'primary' => 'false',
       );
     }
@@ -843,7 +843,7 @@ function commerce_paypal_chained_order_form($form, &$form_state, $order, $settin
   // Reach out to PayPal for a paykey to associate with this order
   // The Pay Key essentially defines our chained payment on PayPal's end, and
   // we'll need to pass this, along with the user, over to PayPal.
-  $pay_key = commerce_paypal_wps_chained_payment_get_paykey(
+  $pay_key = commerce_paypal_chained_get_paykey(
     $receivers,
     $memo,
     $tracking_id,
