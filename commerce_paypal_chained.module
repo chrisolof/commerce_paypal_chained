@@ -742,6 +742,9 @@ function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$i
         }
       }
     }
+    // Convert our amount from a decimal back to an integer for storage in the
+    // database.
+    $transaction->amount = commerce_currency_decimal_to_amount($transaction->amount, $transaction->currency_code);
     $transaction->payload[REQUEST_TIME . '-ipn'] = $ipn;
     // Set the transaction's statuses based on the IPN transaction's status.
     $transaction->remote_status = $ipn_transaction['status'];
