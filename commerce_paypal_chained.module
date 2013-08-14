@@ -727,6 +727,7 @@ function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$i
     $transaction = commerce_payment_transaction_new('paypal_chained', $order->order_id);
     $transaction->instance_id = $payment_method['instance_id'];
     $transaction->remote_id = $ipn['pay_key'];
+    $transaction->field_chained_receiver_email[LANGUAGE_NONE][0]['value'] = $ipn_transaction['receiver'];
     // amount contains the currency code and the transaction amount
     list($transaction->currency_code, $transaction->amount) = explode(' ', $ipn_transaction['amount']);
     // If this is the primary transaction, deduct the secondary transactions
