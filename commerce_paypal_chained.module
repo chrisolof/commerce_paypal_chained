@@ -812,7 +812,7 @@ function commerce_paypal_chained_order_form($form, &$form_state, $order, $settin
   // We'll define the first receiver as our primary
   $receivers = array(
     0 => array(
-      'amount' => $amount,
+      'amount' => commerce_paypal_price_amount(commerce_currency_convert($amount, $order_currency_code, $currency_code), $currency_code),
       'email' => (module_exists('token')) ? token_replace($settings['pay_chain']['primary_receiver']['primary_receiver_email'], array('commerce-order' => $order)) : $settings['pay_chain']['primary_receiver']['primary_receiver_email'],
       'primary' => 'true',
     ),
@@ -827,7 +827,7 @@ function commerce_paypal_chained_order_form($form, &$form_state, $order, $settin
       // Calculate the actual amount to allocate to this secondary receiver
       $calculated_amount = ($percentage / 100.00) * $amount;
       $receivers[] = array(
-        'amount' => $calculated_amount,
+        'amount' => commerce_paypal_price_amount(commerce_currency_convert($calculated_amount, $order_currency_code, $currency_code), $currency_code),
         'email' => (module_exists('token')) ? token_replace($settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'], array('commerce-order' => $order)) : $settings['pay_chain']['secondary_receivers']['secondary_receiver_' . $i]['secondary_receiver_' . $i . '_email'],
         'primary' => 'false',
       );
