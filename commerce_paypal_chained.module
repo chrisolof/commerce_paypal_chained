@@ -769,9 +769,9 @@ function commerce_paypal_chained_paypal_ipn_process($order, $payment_method, &$i
     // Save the transaction information.
     commerce_payment_transaction_save($transaction);
     $ipn['transaction'][$key]['transaction_id'] = $transaction->transaction_id;
-    commerce_payment_redirect_pane_next_page($order);
-    watchdog('commerce_paypal_chained', 'IPN processed for Order @order_number with ID @pay_key.', array('@pay_key' => $ipn['pay_key'], '@order_number' => $order->order_number), WATCHDOG_INFO);
   }
+  commerce_payment_redirect_pane_next_page($order);
+  watchdog('commerce_paypal_chained', 'IPN processed for Order @order_number with ID @pay_key.', array('@pay_key' => $ipn['pay_key'], '@order_number' => $order->order_number), WATCHDOG_INFO);
 }
 
 /**
