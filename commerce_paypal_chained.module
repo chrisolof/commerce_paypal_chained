@@ -678,20 +678,17 @@ function commerce_paypal_chained_paypal_ipn_validate($order, $payment_method, $i
           $ipn_transaction['receiver'] != $known_chain[$key]['email'] || 
           $currency != $result->currency || 
           $ipn_transaction['is_primary_receiver'] != $known_chain[$key]['primary']) {
-          commerce_payment_redirect_pane_previous_page($order);
           watchdog('commerce_paypal_chained', 'IPN rejected: invalid pay chain specified for Order @order_number; must match the pay chain on file for this order.', array('@order_number' => $order->order_number), WATCHDOG_NOTICE);
           return FALSE;
         }
       }
     }
     else {
-      commerce_payment_redirect_pane_previous_page($order);
       watchdog('commerce_paypal_chained', 'IPN rejected: invalid pay chain specified for Order @order_number; wrong number of receivers.', array('@order_number' => $order->order_number), WATCHDOG_NOTICE);
       return FALSE;
     }
   }
   else {
-    commerce_payment_redirect_pane_previous_page($order);
     watchdog('commerce_paypal_chained', 'IPN rejected: no pay chain on file for Order @order_number.', array('@order_number' => $order->order_number), WATCHDOG_NOTICE);
     return FALSE;
   }
