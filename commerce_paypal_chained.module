@@ -1067,3 +1067,13 @@ function commerce_paypal_chained_get_paykey($receivers, $memo = '', $tracking_id
 function commerce_paypal_chained_currencies() {
   return drupal_map_assoc(array('AUD', 'BRL', 'CAD', 'CHF', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'ILS', 'JPY', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'SEK', 'SGD', 'THB', 'TRY', 'TWD', 'USD'));
 }
+
+/**
+ * Implements hook_views_api().
+ */
+function commerce_paypal_chained_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'commerce_paypal_chained') . '/includes/views',
+  );
+}
