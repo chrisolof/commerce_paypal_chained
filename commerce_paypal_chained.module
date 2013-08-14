@@ -353,8 +353,7 @@ function commerce_paypal_chained_ipn_load($id, $type = 'pay_key') {
   $result = db_select('commerce_paypal_chained_ipn_transaction', 'cpcit')
     ->fields('cpcit')
     ->condition('cpcit.ipn_transaction_id', $ipn['ipn_id'])
-    ->execute()
-    ->fetchAssoc();
+    ->execute();
   // Add these chained transactions into the IPN
   while ($record = $result->fetchAssoc()) {
     $ipn['transaction'][] = $record;
@@ -577,10 +576,10 @@ function commerce_paypal_chained_process_ipn($debug_ipn = array()) {
   if (!empty($payment_method['settings']['ipn_logging']) &&
     $payment_method['settings']['ipn_logging'] == 'full_ipn') {
     if (!empty($ipn['pay_key'])) {
-      watchdog('commerce_paypal', 'Attempting to process IPN @pay_key. !ipn_log', array('@pay_key' => $ipn['pay_key'], '!ipn_log' => '<pre>' . check_plain(print_r($ipn, TRUE)) . '</pre>'), WATCHDOG_NOTICE);
+      watchdog('commerce_paypal_chained', 'Attempting to process IPN @pay_key. !ipn_log', array('@pay_key' => $ipn['pay_key'], '!ipn_log' => '<pre>' . check_plain(print_r($ipn, TRUE)) . '</pre>'), WATCHDOG_NOTICE);
     }
     else {
-      watchdog('commerce_paypal', 'Attempting to process an IPN. !ipn_log', array('!ipn_log' => '<pre>' . check_plain(print_r($ipn, TRUE)) . '</pre>'), WATCHDOG_NOTICE);
+      watchdog('commerce_paypal_chained', 'Attempting to process an IPN. !ipn_log', array('!ipn_log' => '<pre>' . check_plain(print_r($ipn, TRUE)) . '</pre>'), WATCHDOG_NOTICE);
     }
   }
 
@@ -594,7 +593,7 @@ function commerce_paypal_chained_process_ipn($debug_ipn = array()) {
     // commerce_paypal_chained_paypal_ipn_process().
     // TODO - verify IPNs are sent out when any piece of the chain changes
     // For now - we only accept one IPN with this paykey
-    watchdog('commerce_paypal', 'Attempted to process an IPN that has already been processed with transaction ID @pay_key.', array('@pay_key' => $ipn['pay_key']), WATCHDOG_NOTICE);
+    watchdog('commerce_paypal_chained', 'Attempted to process an IPN that has already been processed with transaction ID @pay_key.', array('@pay_key' => $ipn['pay_key']), WATCHDOG_NOTICE);
     return FALSE;
   }
 
